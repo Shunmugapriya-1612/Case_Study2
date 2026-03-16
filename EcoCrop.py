@@ -20,6 +20,8 @@ crops = crops.loc[:, ~crops.columns.duplicated()]
 
 print("Columns after cleaning:", len(crops.columns))
 
+print(crops.info())
+
 
 # ------------------------------------------------------------
 # 3. Convert Numeric Columns
@@ -102,26 +104,20 @@ for col in ["liopmn","liopmx","limn","limx"]:
     if col in crops.columns:
         crops[col] = crops[col].map(light_map)
 
-# Remove crops with undefined light tolerance
-crops = crops.dropna(subset=["liopmn","liopmx","limn","limx"])
-
 # ------------------------------------------------------------
-# 7. Remove Crops Without Core Temperature Limits
+# Remove crops with completely missing light tolerance
 # ------------------------------------------------------------
 
-required_cols = ["topmn","topmx","tmin","tmax"]
-
-crops = crops.dropna(subset=required_cols)
-
-print("Dataset after temperature filtering:", crops.shape)
-
+crops = crops.dropna(subset=["liopmn","liopmx"], how="all")
 
 
 # ------------------------------------------------------------
-# 9. Fill Remaining Missing Values
+# Remove crops with completely missing temperature limits
 # ------------------------------------------------------------
 
-#crops = crops.fillna(crops.median(numeric_only=True))
+crops = crops.dropna(subset=["topmn","topmx","tmin","tmax"], how="all")
+
+print("Dataset shape", crops.shape)
 
 
 # ------------------------------------------------------------
@@ -133,7 +129,7 @@ print("Dataset after temperature filtering:", crops.shape)
 # Small window → crop needs very specific temperature conditions
 # Helps model understand how temperature-sensitive or tolerant a crop is
 
-crops["temp_opt_range"] = crops["topmx"] - crops["topmn"]
+crops["temp_opt_range"] = np.abs(crops["topmx"] - crops["topmn"])
 
 
 # temp_abs_range = total temperature survival range of the crop
@@ -141,7 +137,7 @@ crops["temp_opt_range"] = crops["topmx"] - crops["topmn"]
 # Small range → crop survives only in limited climates
 # Helps model identify climate-resilient crops for a region
 
-crops["temp_abs_range"] = crops["tmax"] - crops["tmin"]
+crops["temp_abs_range"] = np.abs(crops["tmax"] - crops["tmin"])
 
 
 # rain_opt_range = width of optimal rainfall range
@@ -149,7 +145,7 @@ crops["temp_abs_range"] = crops["tmax"] - crops["tmin"]
 # Small range → crop needs precise water conditions
 # Helps model match crops to regions with stable or variable rainfall
 
-crops["rain_opt_range"] = crops["ropmx"] - crops["ropmn"]
+crops["rain_opt_range"] = np.abs(crops["ropmx"] - crops["ropmn"])
 
 
 # rain_abs_range = full rainfall survival tolerance
@@ -157,7 +153,7 @@ crops["rain_opt_range"] = crops["ropmx"] - crops["ropmn"]
 # Small range → crop is sensitive to water stress
 # Helps model understand water resilience of crops
 
-crops["rain_abs_range"] = crops["rmax"] - crops["rmin"]
+crops["rain_abs_range"] = np.abs(crops["rmax"] - crops["rmin"])
 
 
 # photo_range = daylight hours range suitable for crop growth
@@ -165,7 +161,7 @@ crops["rain_abs_range"] = crops["rmax"] - crops["rmin"]
 # Small range → crop sensitive to seasonal daylight changes
 # Helps model determine crop suitability across seasons and latitudes
 
-crops["photo_range"] = crops["phopmx"] - crops["phopmn"]
+crops["photo_range"] = np.abs(crops["phopmx"] - crops["phopmn"])
 
 
 # lat_range = geographic latitude adaptability of the crop
@@ -181,7 +177,7 @@ crops["lat_range"] = crops["latmx"] - crops["latmn"]
 # Small range → crop requires specific sunlight intensity
 # Helps model match crops with radiation and sunlight availability
 
-crops["light_opt_range"] = crops["liopmx"] - crops["liopmn"]
+crops["light_opt_range"] = np.abs(crops["liopmx"] - crops["liopmn"])
 
 
 # light_abs_range = full sunlight survival tolerance
@@ -189,7 +185,7 @@ crops["light_opt_range"] = crops["liopmx"] - crops["liopmn"]
 # Small range → crop sensitive to light stress
 # Helps model determine crop survival under varying light conditions
 
-crops["light_abs_range"] = crops["limx"] - crops["limn"]
+crops["light_abs_range"] = np.abs(crops["limx"] - crops["limn"])
 
 
 # growth_duration = flexibility in crop growth cycle
@@ -197,7 +193,7 @@ crops["light_abs_range"] = crops["limx"] - crops["limn"]
 # Small duration → crop requires a fixed growing period
 # Helps model match crops with regional growing season length
 
-crops["growth_duration"] = crops["gmax"] - crops["gmin"]
+crops["growth_duration"] = np.abs(crops["gmax"] - crops["gmin"])
 
 
 # ------------------------------------------------------------
@@ -235,6 +231,18 @@ crops["photo_center"] = (crops["phopmn"] + crops["phopmx"]) / 2
 
 crops["light_center"] = (crops["liopmn"] + crops["liopmx"]) / 2
 
+crops.loc[crops["growth_duration"] > 400, "growth_duration"] = np.nan
+crops.loc[crops["photo_center"] > 24, "photo_center"] = np.nan
+crops.loc[crops["growth_duration"] <= 0, "growth_duration"] = np.nan
+# --------------------------------------------------
+# Safe CV calculation
+# --------------------------------------------------
+
+def coef_variation(series):
+    series = series.dropna()
+    if series.mean() == 0:
+        return np.nan
+    return series.std() / series.mean()
 
 # ------------------------------------------------------------
 # 13. Final Dataset Overview
@@ -261,6 +269,89 @@ remove_cols = [
 crops = crops.drop(columns=[c for c in remove_cols if c in crops.columns])
 
 
+
+print("\n================ CROP ENVIRONMENTAL REQUIREMENT SUMMARY ================\n")
+
+
+# --------------------------------------------------
+# TEMPERATURE REQUIREMENTS
+# --------------------------------------------------
+
+print("---------------- TEMPERATURE REQUIREMENTS ----------------")
+
+print(f"Average ideal temperature for crop growth: {crops['temp_opt_center'].mean():.2f} °C")
+print(f"Average optimal temperature tolerance window: {crops['temp_opt_range'].mean():.2f} °C")
+print(f"Average total temperature survival range: {crops['temp_abs_range'].mean():.2f} °C")
+
+print("----------------------------------------------------------\n")
+
+
+# --------------------------------------------------
+# RAINFALL REQUIREMENTS
+# --------------------------------------------------
+
+print("---------------- RAINFALL REQUIREMENTS ----------------")
+
+print(f"Average ideal rainfall requirement for crops: {crops['rain_opt_center'].mean():.2f} mm")
+print(f"Average optimal rainfall tolerance range: {crops['rain_opt_range'].mean():.2f} mm")
+print(f"Average total rainfall survival range: {crops['rain_abs_range'].mean():.2f} mm")
+
+print("-------------------------------------------------------\n")
+
+
+# --------------------------------------------------
+# SUNLIGHT REQUIREMENTS
+# --------------------------------------------------
+
+print("---------------- SUNLIGHT REQUIREMENTS ----------------")
+
+print(f"Average ideal sunlight level required for photosynthesis: {crops['light_center'].mean():.2f}")
+print(f"Average optimal sunlight tolerance range: {crops['light_opt_range'].mean():.2f}")
+print(f"Average full sunlight survival tolerance range: {crops['light_abs_range'].mean():.2f}")
+
+print("-------------------------------------------------------\n")
+
+
+# --------------------------------------------------
+# DAYLIGHT REQUIREMENTS
+# --------------------------------------------------
+
+print("---------------- DAYLIGHT REQUIREMENTS ----------------")
+
+print(f"Average ideal daylight duration for crop growth: {crops['photo_center'].mean():.2f} hours")
+print(f"Average daylight tolerance window across crops: {crops['photo_range'].mean():.2f} hours")
+
+print("-------------------------------------------------------\n")
+
+
+# --------------------------------------------------
+# GROWTH CYCLE
+# --------------------------------------------------
+
+print("---------------- GROWTH CYCLE ----------------")
+
+print(f"Average crop growth duration: {crops['growth_duration'].mean():.1f} days")
+print(f"Shortest crop growth cycle observed: {crops['growth_duration'].min():.1f} days")
+print(f"Longest crop growth cycle observed: {crops['growth_duration'].max():.1f} days")
+
+print("------------------------------------------------\n")
+
+
+# --------------------------------------------------
+# CROP ADAPTABILITY
+# --------------------------------------------------
+
+temp_var = coef_variation(crops["temp_opt_range"])
+rain_var = coef_variation(crops["rain_opt_range"])
+light_var = coef_variation(crops["light_opt_range"])
+
+print("---------------- CROP ADAPTABILITY ----------------")
+
+print(f"Temperature adaptability variability (CV): {temp_var:.2f}")
+print(f"Rainfall adaptability variability (CV): {rain_var:.2f}")
+print(f"Sunlight adaptability variability (CV): {light_var:.2f}")
+
+print("---------------------------------------------------\n")
 # ------------------------------------------------------------
 # 14. Save Processed Crop Dataset
 # ------------------------------------------------------------
@@ -271,3 +362,4 @@ crops.to_parquet(
 )
 print(crops.shape)
 print("\nSaved: outputs/crop_requirements_features.parquet")
+

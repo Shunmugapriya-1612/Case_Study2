@@ -772,8 +772,12 @@ plt.show()
 
 plt.figure(figsize=(8,6))
 
-drought_region_flag.plot(cmap="Reds")
-
+drought_region_flag.plot(
+    cmap="Reds",
+    vmin=0,
+    vmax=1,
+    cbar_kwargs={"label": "Drought Presence (1 = drought)"}
+)
 plt.title("Regions Experiencing Drought Risk")
 plt.xlabel("Longitude")
 plt.ylabel("Latitude")
@@ -790,7 +794,6 @@ climate_features.to_parquet(
     "outputs/Climate_Features_2025.parquet",
     index=False
 )
-print(climate_features.columns)
 
 
 # Group by location (lat/lon) and backfill only the gradients
@@ -799,6 +802,5 @@ climate_features[['Temp_Gradient', 'SWVL1_Gradient', 'SWVL2_Gradient']] = \
     climate_features.groupby(['lat', 'lon'])[['Temp_Gradient', 'SWVL1_Gradient', 'SWVL2_Gradient']].bfill()
 
 # Verify the 5400 are gone
-print(climate_features.isnull().sum())
-print(climate_features.shape)
+print(climate_features.info)
 print("Saved: outputs/Climate_Features_2025.parquet")
